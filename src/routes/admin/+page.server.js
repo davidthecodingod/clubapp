@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { db, allowedUsers } from '$lib/server/db';
 import { eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
-import nodemailer from 'nodemailer';
+import { sendEmail } from '$lib/server/email';
 
 // @ts-ignore
 export async function load({ cookies }) {
@@ -30,25 +30,31 @@ export const actions = {
 
 		if (!email) return fail(400, { error: 'Email is required.' });
 
+		// Authorize first. Kept separate from sending so that a mail failure is
+		// never reported as a database error (and vice versa).
 		try {
 			await db.insert(allowedUsers).values({ email, role: 'member' });
+		} catch (err) {
+			console.error('[invite] failed to authorize user:', err);
+			return fail(400, { error: 'Email is already authorized or database error occurred.' });
+		}
 
-			const transporter = nodemailer.createTransport({
-				service: 'gmail',
-				auth: { user: env.SMTP_EMAIL, pass: env.SMTP_PASSWORD }
-			});
-
-			await transporter.sendMail({
-				from: env.SMTP_EMAIL,
+		try {
+			await sendEmail({
 				to: email,
 				subject: 'Club Portal Invitation',
 				text: `Hello,\n\nYou have been authorized to join the club website.\n\nLog in here: ${env.BETTER_AUTH_URL || 'https://owyverns-production.up.railway.app'}\nShared Group Password: ${env.GROUP_PASSWORD}\n\nWelcome!`
 			});
-
-			return { success: `Successfully invited ${email} as a member` };
 		} catch (err) {
-			return fail(400, { error: 'Email is already authorized or database error occurred.' });
+			console.error('[invite] failed to send invitation email:', err);
+			// The user IS authorized at this point, so do not claim the invite
+			// failed outright -- say exactly what happened.
+			return fail(502, {
+				error: `${email} is now authorized, but the invitation email could not be sent. They can still log in with the group password. See the deploy logs for details.`
+			});
 		}
+
+		return { success: `Successfully invited ${email} as a member` };
 	},
 
 	// @ts-ignore
