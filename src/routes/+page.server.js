@@ -2,8 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { db, allowedUsers } from '$lib/server/db';
 import { eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
-// @ts-ignore
-import nodemailer from 'nodemailer';
+import { sendEmail } from '$lib/server/email';
 
 export const actions = {
 	// @ts-ignore
@@ -49,17 +48,19 @@ export const actions = {
 		const user = await db.select().from(allowedUsers).where(eq(allowedUsers.email, email)).get();
         
 		if (user) {
-			const transporter = nodemailer.createTransport({
-				service: 'gmail',
-				auth: { user: env.SMTP_EMAIL, pass: env.SMTP_PASSWORD }
-			});
-
-			await transporter.sendMail({
-				from: env.SMTP_EMAIL,
-				to: email,
-				subject: 'Club Website Password Reminder',
-				text: `Hello,\n\nThe shared group password for the wyvern club website is: ${env.GROUP_PASSWORD}\n\nSee you inside!`
-			});
+			try {
+				await sendEmail({
+					to: email,
+					subject: 'Club Website Password Reminder',
+					text: `Hello,\n\nThe shared group password for the wyvern club website is: ${env.GROUP_PASSWORD}\n\nSee you inside!`
+				});
+			} catch (err) {
+				// Deliberately not surfaced to the visitor: the response must stay
+				// identical whether or not the address is registered, so the form
+				// cannot be used to enumerate club members. Check the Railway
+				// deploy logs if a reminder does not arrive.
+				console.error('[forgot] failed to send password reminder:', err);
+			}
 		}
 
 		return { forgotSuccess: 'If that email is registered, the password has been sent.' };
