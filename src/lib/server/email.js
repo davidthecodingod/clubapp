@@ -50,5 +50,10 @@ export async function sendEmail({ to, subject, text }) {
 		throw new Error(`Resend rejected the send: ${detail}`);
 	}
 
-	return { id: body?.id ?? 'unknown' };
+	const id = body?.id ?? 'unknown';
+	// Positive confirmation in the logs. Resend accepting the message is not
+	// the same as it landing in the inbox, so check the Resend dashboard for
+	// the delivered/bounced outcome if a message does not turn up.
+	console.log(`[email] Resend accepted "${subject}" for ${to} (id ${id})`);
+	return { id };
 }
